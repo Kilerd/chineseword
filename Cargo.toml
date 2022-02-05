@@ -2,7 +2,8 @@
 name = "chineseword"
 version = "0.0.1"
 edition = "2021"
-
+description = "a lib for normalize chinese and english word's space"
+license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
