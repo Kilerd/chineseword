@@ -66,18 +66,15 @@ fn correct_space(content: &str) -> String {
     'outer: for i in 0..chars.len() - 1 {
         let x = chars[i];
         if x == ' ' {
-            let mut match_flag = false;
             for (l_rule, r_rule) in REMOVE_SPACE_RULE {
                 if l_rule(&chars[i - 1]) && r_rule(&chars[i + 1]) {
-                    match_flag = true;
-                    break;
+                    continue 'outer;
                 }
             }
-            if !match_flag { ret.push(x); }
-
+            ret.push(x);
         } else {
             ret.push(x);
-            for (idx, (l_rule, r_rule)) in ADD_SPACE_RULE.iter().enumerate() {
+            for (l_rule, r_rule) in ADD_SPACE_RULE {
                 if l_rule(&x) && r_rule(&chars[i + 1]) {
                     ret.push(' ');
                     break;
@@ -313,5 +310,4 @@ mod tests {
     fn should_correct_space() {
         assert_eq!("中文中文", normalize("中文 中文"));
     }
-
 }
