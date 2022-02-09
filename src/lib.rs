@@ -111,6 +111,159 @@ fn correct_minor_space(content: &str) -> String {
     ret.push(chars[chars.len() - 1]);
     ret.into_iter().collect()
 }
+
+fn correct_punc_zh(content: &str) -> String {
+    static END_PUNC_LIST: [(char, char); 6] = [
+        ('，', ','),
+        ('。', '.'),
+        ('？', '?'),
+        ('！', '!'),
+        ('：', ':'),
+        ('；', ';'),
+    ];
+    static LEFT_BRACKET: Set<char> = phf_set! {'(','（'};
+    static RIGHT_BRACKET: Set<char> = phf_set! {')','）'};
+    let mut chars = content.chars().into_iter().collect_vec();
+
+    'outer: for i in 0..chars.len() {
+        for (zh_end_punc, en_end_punc) in END_PUNC_LIST {
+            if chars[i] == en_end_punc && detect_forward(is_zh_char, &chars, i) {
+                chars[i] = zh_end_punc;
+                dbg!(&chars[i], en_end_punc, zh_end_punc);
+                continue 'outer;
+            }
+        }
+        if dbg!(chars[i]) == '(' && dbg!(detect_forward(is_zh_char, &chars, dbg!(i))) {
+            chars[i] = '（';
+        } else if chars[i] == ')' && detect_backward(is_zh_char, &chars, i) {
+            chars[i] = '）';
+        }
+        dbg!(&chars);
+        if chars[i] == '（' {
+            let mut j = i + 1;
+            let mut bracket_count = 0;
+            let mut ok = false;
+            while j < chars.len() {
+                if RIGHT_BRACKET.contains(&chars[j]) {
+                    if bracket_count == 0 {
+                        ok = true;
+                        break;
+                    } else {
+                        bracket_count -= 1;
+                    }
+                } else if LEFT_BRACKET.contains(&chars[j]) {
+                    bracket_count += 1;
+                }
+                j += 1;
+            }
+            if ok && chars[j] == ')' {
+                chars[j] = '）';
+            }
+        }
+        if chars[i] == '）' {
+            let mut j = i - 1;
+            let mut bracket_count = 0;
+            let mut ok = false;
+            while j >= 0 {
+                if LEFT_BRACKET.contains(&chars[j]) {
+                    if bracket_count == 0 {
+                        ok = true;
+                        break;
+                    } else {
+                        bracket_count -= 1;
+                    }
+                } else if RIGHT_BRACKET.contains(&chars[j]) {
+                    bracket_count += 1;
+                }
+
+                j -= 1;
+            }
+            if ok && chars[j] == '(' {
+                chars[j] = '（';
+            }
+        }
+    }
+    chars.into_iter().join("")
+}
+
+fn correct_quote_zh(content: &str) -> String {
+    static DOUBLE_QUOTE_LIST: Set<char> = phf_set!{'"', '“', '”'};
+    static SINGLE_QUOTE_LIST: Set<char> = phf_set!{'‘', '’'};
+    let mut chars = content.chars().into_iter().collect_vec();
+    let mut quote_state = 0;
+    let mut quote_state_2 = 0;
+    for i in 0..chars.len() {
+        if DOUBLE_QUOTE_LIST.contains(&chars[i]) {
+            if quote_state == 0 {
+                chars[i] = '“';
+                quote_state = 1;
+            }else {
+                chars[i] ='”';
+                quote_state = 0;
+            }
+            if i >0 && chars[i-1] == ' ' {
+                chars[i-1] = '\u{0}';
+            }
+            if i < chars.len()-1 && chars[i+1] == ' ' {
+                chars[i+1] = '\u{0}';
+            }
+        }else if SINGLE_QUOTE_LIST.contains(&chars[i]) {
+            if quote_state_2 == 0 {
+                chars[i] = '‘';
+                quote_state_2 = 1;
+            }else {
+                chars[i] = '’';
+                quote_state_2 = 0;
+            }
+            if i >0 && chars[i-1] == ' ' {
+                chars[i-1] = '\u{0}';
+            }
+            if i < chars.len()-1 && chars[i+1] == ' '{
+                chars[i+1] = '\u{0}';
+            }
+        }
+    }
+    chars.into_iter().filter(|it|it != &'\u{0}').collect()
+}
+
+fn detect_forward(detector: fn(&char) -> bool, slices: &[char], idx: usize) -> bool {
+    if idx == 0 {
+        return false;
+    }
+    if detector(&slices[idx - 1]) {
+        return true;
+    }
+    if !slices[idx - 1].is_ascii_whitespace() {
+        return false;
+    }
+    if idx == 1 {
+        return false;
+    }
+    if detector(&slices[idx - 2]) {
+        return true;
+    }
+    false
+}
+
+fn detect_backward(detector: fn(&char) -> bool, slices: &[char], idx: usize) -> bool {
+    if idx == slices.len() - 1 {
+        return false;
+    }
+    if detector(&slices[idx + 1]) {
+        return true;
+    }
+    if !slices[idx + 1].is_ascii_whitespace() {
+        return false;
+    }
+    if idx == slices.len() - 2 {
+        return false;
+    }
+    if detector(&slices[idx + 2]) {
+        return true;
+    }
+    false
+}
+
 pub fn convert_full_width_char(letter: &str) -> &str {
     match letter {
         "０" => "0",
@@ -252,16 +405,30 @@ pub fn normalize(content: impl Into<String>) -> String {
             .into_iter()
             .map(|it| convert_full_width_char(&it.to_string()).to_string())
             .join("");
-        dbg!(&trimmed);
+        dbg!(&trimmed.chars());
         let lang = guess_lang(&trimmed);
-        match lang {
-            Lang::Zh => {
-
+        loop {
+            let last_edit = trimmed.to_string();
+            dbg!(&last_edit);
+            match lang {
+                Lang::Zh => {
+                    trimmed = correct_space(&trimmed);
+                    dbg!(&trimmed.chars());
+                    trimmed = correct_punc_zh(&trimmed);
+                    dbg!(&trimmed.chars());
+                    trimmed = correct_quote_zh(&trimmed);
+                }
+                Lang::En => {
+                    trimmed = dbg!(correct_space(&trimmed));
+                }
             }
-            Lang::En => {}
+            if last_edit.eq(&trimmed) {
+                break;
+            }
         }
-        trimmed = dbg!(correct_space(&trimmed));
-        trimmed = dbg!(correct_minor_space(&trimmed));
+
+        trimmed = correct_minor_space(&trimmed);
+        dbg!(&trimmed.chars());
         ret.push_str(&trimmed);
     }
     ret
@@ -368,5 +535,12 @@ mod tests {
         assert_eq!(Lang::Zh, guess_lang("中文12312312"));
         assert_eq!(Lang::En, guess_lang("eng"));
         assert_eq!(Lang::Zh, guess_lang("中文eng"));
+    }
+
+    #[test]
+    fn should_correct_zh_punc() {
+        assert_eq!("中文，中文", normalize("中文,中文"));
+        assert_eq!("中文（中文）", normalize("中文(中文)"));
+        assert_eq!("他们说：“你好啊”", normalize("他们说:\"你好啊\""));
     }
 }
