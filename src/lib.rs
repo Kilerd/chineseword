@@ -82,35 +82,33 @@ enum ZhQuote {
     Tex,
 }
 
-fn correct_space(content: &str) -> String {
-    let chars = content.chars().into_iter().collect_vec();
-    let mut ret = vec![];
-    'outer: for i in 0..chars.len() - 1 {
+fn correct_space(mut chars: Vec<char>) -> Vec<char> {
+    let mut i = 0;
+    'outer: while i < chars.len() - 1 {
         let x = chars[i];
         if x == ' ' {
             for (l_rule, r_rule) in REMOVE_SPACE_RULE {
                 if l_rule(&chars[i - 1]) && r_rule(&chars[i + 1]) {
+                    chars[i] = '\u{0}';
                     continue 'outer;
                 }
             }
-            ret.push(x);
         } else {
-            ret.push(x);
             for (l_rule, r_rule) in ADD_SPACE_RULE {
                 if l_rule(&x) && r_rule(&chars[i + 1]) {
-                    ret.push(' ');
+                    chars.insert(i + 1, ' ');
+                    i += 1;
                     break;
                 }
             }
         }
+        i += 1;
     }
-    ret.push(chars[chars.len() - 1]);
-    ret.into_iter().collect()
+    chars.into_iter().filter(|it| it != &'\u{0}').collect_vec()
 }
 
-fn correct_minor_space(content: &str) -> String {
-    let chars = content.chars().into_iter().collect_vec();
-    let mut ret = vec![];
+fn correct_minor_space(mut chars: Vec<char>) -> Vec<char> {
+    let mut ret = vec![]; // todo remove copy
     for i in 0..chars.len() - 1 {
         let x = chars[i];
         ret.push(x);
@@ -125,7 +123,7 @@ fn correct_minor_space(content: &str) -> String {
     ret.into_iter().collect()
 }
 
-fn correct_punc_zh(content: &str) -> String {
+fn correct_punc_zh(mut chars: Vec<char>) -> Vec<char> {
     static END_PUNC_LIST: [(char, char); 6] = [
         ('，', ','),
         ('。', '.'),
@@ -136,7 +134,6 @@ fn correct_punc_zh(content: &str) -> String {
     ];
     static LEFT_BRACKET: Set<char> = phf_set! {'(','（'};
     static RIGHT_BRACKET: Set<char> = phf_set! {')','）'};
-    let mut chars = content.chars().into_iter().collect_vec();
 
     'outer: for i in 0..chars.len() {
         for (zh_end_punc, en_end_punc) in END_PUNC_LIST {
@@ -194,9 +191,9 @@ fn correct_punc_zh(content: &str) -> String {
             }
         }
     }
-    chars.into_iter().join("")
+    chars
 }
-fn correct_punc_en(content: &str) -> String {
+fn correct_punc_en(mut chars: Vec<char>) -> Vec<char> {
     static END_PUNC_LIST: [(char, char); 6] = [
         ('，', ','),
         ('。', '.'),
@@ -207,7 +204,6 @@ fn correct_punc_en(content: &str) -> String {
     ];
     static LEFT_BRACKET: Set<char> = phf_set! {'(','（'};
     static RIGHT_BRACKET: Set<char> = phf_set! {')','）'};
-    let mut chars = content.chars().into_iter().collect_vec();
 
     'outer: for i in 0..chars.len() {
         for (zh_end_punc, en_end_punc) in END_PUNC_LIST {
@@ -265,13 +261,12 @@ fn correct_punc_en(content: &str) -> String {
             }
         }
     }
-    chars.into_iter().join("")
+    chars
 }
 
-fn correct_quote_zh(content: &str) -> String {
+fn correct_quote_zh(mut chars: Vec<char>) -> Vec<char> {
     static DOUBLE_QUOTE_LIST: Set<char> = phf_set! {'"', '“', '”'};
     static SINGLE_QUOTE_LIST: Set<char> = phf_set! {'‘', '’'};
-    let mut chars = content.chars().into_iter().collect_vec();
     let mut quote_state = 0;
     let mut quote_state_2 = 0;
     for i in 0..chars.len() {
@@ -307,9 +302,8 @@ fn correct_quote_zh(content: &str) -> String {
     }
     chars.into_iter().filter(|it| it != &'\u{0}').collect()
 }
-fn correct_quote_en(content: &str) -> String {
+fn correct_quote_en(mut chars: Vec<char>) -> Vec<char> {
     static DOUBLE_QUOTE_LIST: Set<char> = phf_set! {'"', '“', '”'};
-    let mut chars = content.chars().into_iter().collect_vec();
     let mut quote_state = 0;
     let mut i = 0;
     while i < chars.len() {
@@ -345,9 +339,8 @@ fn correct_quote_en(content: &str) -> String {
     chars.into_iter().filter(|it| it != &'\u{0}').collect()
 }
 
-fn correct_ellipsis(content: &str, ellipsis: &str) -> String {
+fn correct_ellipsis(mut chars: Vec<char>, ellipsis: &str) -> Vec<char> {
     static ELLIPSIS_LIST: Set<char> = phf_set! {'.','。','·','…'};
-    let mut chars = content.chars().into_iter().collect_vec();
     let mut i = 0;
     while i < chars.len() {
         if ELLIPSIS_LIST.contains(&chars[i]) {
@@ -514,8 +507,7 @@ pub fn convert_full_width_char(letter: &str) -> &str {
     }
 }
 
-fn guess_lang(content: &str) -> Lang {
-    let vec = content.chars().collect_vec();
+fn guess_lang(vec: &Vec<char>) -> Lang {
     let mut i = 0;
     let mut j = vec.len() - 1;
     while i < j && !is_zh_letter(&vec[i]) && !is_en_letter(&vec[i]) {
@@ -596,50 +588,56 @@ fn correct_zh_quote(content: &str, quote: ZhQuote) -> String {
 pub fn normalize(content: impl Into<String>) -> String {
     let content = content.into();
     let lines = content.lines();
-    let mut ret = String::new();
-    for line in lines {
-        let trimmed = line.trim().split_whitespace().join(" ");
+    lines
+        .into_iter()
+        .map(|line| {
+            let trimmed = line.trim().split_whitespace().join(" ");
 
-        let mut trimmed = trimmed
-            .chars()
-            .into_iter()
-            .map(|it| convert_full_width_char(&it.to_string()).to_string())
-            .join("");
-        dbg!(&trimmed.chars());
-        let lang = guess_lang(&trimmed);
-        loop {
-            let last_edit = trimmed.to_string();
-            dbg!(&last_edit);
-            match lang {
-                Lang::Zh => {
-                    trimmed = correct_space(&trimmed);
-                    dbg!(&trimmed.chars());
-                    trimmed = correct_punc_zh(&trimmed);
-                    dbg!(&trimmed.chars());
-                    trimmed = correct_quote_zh(&trimmed);
-                    dbg!(&trimmed.chars());
-                    trimmed = correct_ellipsis(&trimmed, "……");
+            let mut trimmed = trimmed
+                .chars()
+                .into_iter()
+                .map(|it| it.to_string())
+                .map(|it| convert_full_width_char(&it).to_string())
+                .flat_map(|it| it.chars().into_iter().collect_vec().into_iter())
+                .collect_vec();
+            dbg!(&trimmed);
+            let lang = guess_lang(&trimmed);
+            loop {
+                let last_edit = trimmed.clone();
+                dbg!(&last_edit);
+                match lang {
+                    Lang::Zh => {
+                        trimmed = correct_space(trimmed);
+                        dbg!(&trimmed);
+                        trimmed = correct_punc_zh(trimmed);
+                        dbg!(&trimmed);
+                        trimmed = correct_quote_zh(trimmed);
+                        dbg!(&trimmed);
+                        trimmed = correct_ellipsis(trimmed, "……");
+                    }
+                    Lang::En => {
+                        trimmed = dbg!(correct_space(trimmed));
+                        dbg!(&trimmed);
+                        trimmed = correct_punc_en(trimmed);
+                        dbg!(&trimmed);
+                        trimmed = correct_quote_en(trimmed);
+                        dbg!(&trimmed);
+                        trimmed = correct_ellipsis(trimmed, "...");
+                        dbg!(&trimmed);
+                    }
                 }
-                Lang::En => {
-                    trimmed = dbg!(correct_space(&trimmed));
-                    dbg!(&trimmed.chars());
-                    trimmed = correct_punc_en(&trimmed);
-                    trimmed = correct_quote_en(&trimmed);
-                    trimmed = correct_ellipsis(&trimmed, "...");
+                if last_edit.eq(&trimmed) {
+                    break;
                 }
             }
-            if last_edit.eq(&trimmed) {
-                break;
-            }
-        }
 
-        trimmed = correct_minor_space(&trimmed);
-        trimmed = correct_zh_period(&trimmed, ZhPeriod::Empty);
-        trimmed = correct_zh_quote(&trimmed, ZhQuote::Curly);
-        dbg!(&trimmed.chars());
-        ret.push_str(&trimmed);
-    }
-    ret
+            trimmed = correct_minor_space(trimmed);
+            let s = trimmed.into_iter().join("");
+            let s = correct_zh_period(&s, ZhPeriod::Empty);
+            let s = correct_zh_quote(&s, ZhQuote::Curly);
+            s
+        })
+        .join("\n")
 }
 
 fn is_zh_letter(letter: &char) -> bool {
@@ -707,6 +705,7 @@ fn digit(letter: &char) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::{guess_lang, normalize, Lang};
+    use itertools::Itertools;
 
     #[test]
     fn should_keep_the_same_given_only_english_word() {
@@ -739,10 +738,10 @@ mod tests {
 
     #[test]
     fn should_guess_language() {
-        assert_eq!(Lang::Zh, guess_lang("中文"));
-        assert_eq!(Lang::Zh, guess_lang("中文12312312"));
-        assert_eq!(Lang::En, guess_lang("eng"));
-        assert_eq!(Lang::Zh, guess_lang("中文eng"));
+        assert_eq!(Lang::Zh, guess_lang(&"中文".chars().collect_vec()));
+        assert_eq!(Lang::Zh, guess_lang(&"中文12312312".chars().collect_vec()));
+        assert_eq!(Lang::En, guess_lang(&"eng".chars().collect_vec()));
+        assert_eq!(Lang::Zh, guess_lang(&"中文eng".chars().collect_vec()));
     }
 
     #[test]
