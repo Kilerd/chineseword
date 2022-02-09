@@ -68,6 +68,19 @@ enum Lang {
     Zh,
     En,
 }
+#[derive(Debug, PartialEq)]
+enum ZhPeriod {
+    Empty,
+    Dot,
+    EnDot,
+}
+#[derive(Debug, PartialEq)]
+enum ZhQuote {
+    Curly,
+    Rect,
+    Straight,
+    Tex,
+}
 
 fn correct_space(content: &str) -> String {
     let chars = content.chars().into_iter().collect_vec();
@@ -540,6 +553,46 @@ fn guess_lang(content: &str) -> Lang {
     }
 }
 
+fn correct_zh_period(content: &str, period: ZhPeriod) -> String {
+    match period {
+        ZhPeriod::Empty => content.replace('．', "。"),
+        ZhPeriod::Dot => content.replace('。', "．"),
+        ZhPeriod::EnDot => content.replace('。', ". ").replace('．', ". "),
+    }
+}
+fn correct_zh_quote(content: &str, quote: ZhQuote) -> String {
+    match quote {
+        ZhQuote::Curly => content
+            .replace('「', "“")
+            .replace('」', "”")
+            .replace('『', "‘")
+            .replace('』', "’"),
+        ZhQuote::Rect => content
+            .replace('“', "「")
+            .replace('”', "」")
+            .replace('‘', "『")
+            .replace('’', "』"),
+        ZhQuote::Straight => content
+            .replace('“', " \"")
+            .replace('”', "\" ")
+            .replace('‘', " \'")
+            .replace('’', "\' ")
+            .replace('「', " \"")
+            .replace('」', "\" ")
+            .replace('『', " \'")
+            .replace('』', "\' "),
+        ZhQuote::Tex => content
+            .replace('“', " ``")
+            .replace('”', "\'\' ")
+            .replace('‘', " `")
+            .replace('’', "\' ")
+            .replace('「', " ``")
+            .replace('」', "\'\' ")
+            .replace('『', " `")
+            .replace('』', "\' "),
+    }
+}
+
 pub fn normalize(content: impl Into<String>) -> String {
     let content = content.into();
     let lines = content.lines();
@@ -581,6 +634,8 @@ pub fn normalize(content: impl Into<String>) -> String {
         }
 
         trimmed = correct_minor_space(&trimmed);
+        trimmed = correct_zh_period(&trimmed, ZhPeriod::Empty);
+        trimmed = correct_zh_quote(&trimmed, ZhQuote::Curly);
         dbg!(&trimmed.chars());
         ret.push_str(&trimmed);
     }
@@ -713,5 +768,10 @@ mod tests {
         assert_eq!("中文……中文……", normalize("中文…...中文..."));
         assert_eq!("English...", normalize("English…"));
         assert_eq!("English...", normalize("English……"));
+    }
+
+    #[test]
+    fn should_correct_zh_quote() {
+        assert_eq!("你好“世界”", normalize("你好「世界」"));
     }
 }
