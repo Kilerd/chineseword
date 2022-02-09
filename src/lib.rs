@@ -183,6 +183,77 @@ fn correct_punc_zh(content: &str) -> String {
     }
     chars.into_iter().join("")
 }
+fn correct_punc_en(content: &str) -> String {
+    static END_PUNC_LIST: [(char, char); 6] = [
+        ('，', ','),
+        ('。', '.'),
+        ('？', '?'),
+        ('！', '!'),
+        ('：', ':'),
+        ('；', ';'),
+    ];
+    static LEFT_BRACKET: Set<char> = phf_set! {'(','（'};
+    static RIGHT_BRACKET: Set<char> = phf_set! {')','）'};
+    let mut chars = content.chars().into_iter().collect_vec();
+
+    'outer: for i in 0..chars.len() {
+        for (zh_end_punc, en_end_punc) in END_PUNC_LIST {
+            if chars[i] == zh_end_punc && detect_forward(is_en_char, &chars, i) {
+                chars[i] = en_end_punc;
+                continue 'outer;
+            }
+        }
+        if chars[i] == '（' && detect_forward(is_en_char, &chars, i) {
+            chars[i] = '(';
+        } else if chars[i] == '）' && detect_backward(is_en_char, &chars, i) {
+            chars[i] = ')';
+        }
+        if chars[i] == '(' {
+            let mut j = i + 1;
+            let mut bracket_count = 0;
+            let mut ok = false;
+            while j < chars.len() {
+                if RIGHT_BRACKET.contains(&chars[j]) {
+                    if bracket_count == 0 {
+                        ok = true;
+                        break;
+                    } else {
+                        bracket_count -= 1;
+                    }
+                } else if LEFT_BRACKET.contains(&chars[j]) {
+                    bracket_count += 1;
+                }
+                j += 1;
+            }
+            if ok && chars[j] == '）' {
+                chars[j] = ')';
+            }
+        }
+        if chars[i] == ')' {
+            let mut j = i - 1;
+            let mut bracket_count = 0;
+            let mut ok = false;
+            while j >= 0 {
+                if LEFT_BRACKET.contains(&chars[j]) {
+                    if bracket_count == 0 {
+                        ok = true;
+                        break;
+                    } else {
+                        bracket_count -= 1;
+                    }
+                } else if RIGHT_BRACKET.contains(&chars[j]) {
+                    bracket_count += 1;
+                }
+
+                j -= 1;
+            }
+            if ok && chars[j] == '（' {
+                chars[j] = '(';
+            }
+        }
+    }
+    chars.into_iter().join("")
+}
 
 fn correct_quote_zh(content: &str) -> String {
     static DOUBLE_QUOTE_LIST: Set<char> = phf_set! {'"', '“', '”'};
@@ -220,6 +291,43 @@ fn correct_quote_zh(content: &str) -> String {
                 chars[i + 1] = '\u{0}';
             }
         }
+    }
+    chars.into_iter().filter(|it| it != &'\u{0}').collect()
+}
+fn correct_quote_en(content: &str) -> String {
+    static DOUBLE_QUOTE_LIST: Set<char> = phf_set! {'"', '“', '”'};
+    let mut chars = content.chars().into_iter().collect_vec();
+    let mut quote_state = 0;
+    let mut i = 0;
+    while i < chars.len() {
+        if DOUBLE_QUOTE_LIST.contains(&chars[i]) {
+            if quote_state == 0 {
+                quote_state = 1;
+                chars[i] = '"'; // todo tex quote
+                if i > 0 && chars[i - 1] != ' ' {
+                    i += 1;
+                    chars.insert(i - 1, ' ');
+                }
+                if i < chars.len() - 1 && chars[i + 1] == ' ' {
+                    chars[i + 1] = '\u{0}';
+                }
+            } else {
+                quote_state = 0;
+                chars[i] = '"';
+                if i > 0 && chars[i - 1] == ' ' {
+                    chars[i - 1] = '\u{0}';
+                }
+                if i < chars.len() - 1 && chars[i + 1] != ' ' {
+                    chars.insert(i, ' ');
+                    i += 1;
+                }
+            }
+        } else if chars[i] == '‘' {
+            chars[i] = '\''; // todo tex quote
+        } else if chars[i] == '’' {
+            chars[i] = '\'';
+        }
+        i += 1;
     }
     chars.into_iter().filter(|it| it != &'\u{0}').collect()
 }
@@ -461,6 +569,10 @@ pub fn normalize(content: impl Into<String>) -> String {
                 }
                 Lang::En => {
                     trimmed = dbg!(correct_space(&trimmed));
+                    dbg!(&trimmed.chars());
+                    trimmed = correct_punc_en(&trimmed);
+                    trimmed = correct_quote_en(&trimmed);
+                    trimmed = correct_ellipsis(&trimmed, "...");
                 }
             }
             if last_edit.eq(&trimmed) {
@@ -584,11 +696,22 @@ mod tests {
         assert_eq!("中文（中文）", normalize("中文(中文)"));
         assert_eq!("他们说：“你好啊”", normalize("他们说:\"你好啊\""));
     }
+
+    #[test]
+    fn should_correct_en_punc() {
+        assert_eq!("hello, world", normalize("hello，world"));
+        assert_eq!("hello, world!", normalize("hello，world！"));
+        assert_eq!("hello (world)", normalize("hello（world）"));
+        assert_eq!("hello \"world\"", normalize("hello“world”"));
+    }
+
     #[test]
     fn should_correct_ellipsis() {
         assert_eq!("中文……", normalize("中文....。....."));
         assert_eq!("中文……", normalize("中文…"));
         assert_eq!("中文……中文", normalize("中文…中文"));
         assert_eq!("中文……中文……", normalize("中文…...中文..."));
+        assert_eq!("English...", normalize("English…"));
+        assert_eq!("English...", normalize("English……"));
     }
 }
