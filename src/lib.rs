@@ -172,7 +172,7 @@ fn correct_punc_zh(mut chars: Vec<char>) -> Vec<char> {
             let mut j = i - 1;
             let mut bracket_count = 0;
             let mut ok = false;
-            while j >= 0 {
+            loop {
                 if LEFT_BRACKET.contains(&chars[j]) {
                     if bracket_count == 0 {
                         ok = true;
@@ -242,7 +242,7 @@ fn correct_punc_en(mut chars: Vec<char>) -> Vec<char> {
             let mut j = i - 1;
             let mut bracket_count = 0;
             let mut ok = false;
-            while j >= 0 {
+            loop {
                 if LEFT_BRACKET.contains(&chars[j]) {
                     if bracket_count == 0 {
                         ok = true;
@@ -772,5 +772,10 @@ mod tests {
     #[test]
     fn should_correct_zh_quote() {
         assert_eq!("你好“世界”", normalize("你好「世界」"));
+    }
+
+    #[test]
+    fn should_work_on_multiple_line() {
+        assert_eq!("你好“世界”\nEnglish...", normalize("你好「世界」\nEnglish……"));
     }
 }
