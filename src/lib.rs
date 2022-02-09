@@ -129,16 +129,14 @@ fn correct_punc_zh(content: &str) -> String {
         for (zh_end_punc, en_end_punc) in END_PUNC_LIST {
             if chars[i] == en_end_punc && detect_forward(is_zh_char, &chars, i) {
                 chars[i] = zh_end_punc;
-                dbg!(&chars[i], en_end_punc, zh_end_punc);
                 continue 'outer;
             }
         }
-        if dbg!(chars[i]) == '(' && dbg!(detect_forward(is_zh_char, &chars, dbg!(i))) {
+        if chars[i] == '(' && detect_forward(is_zh_char, &chars, i) {
             chars[i] = '（';
         } else if chars[i] == ')' && detect_backward(is_zh_char, &chars, i) {
             chars[i] = '）';
         }
-        dbg!(&chars);
         if chars[i] == '（' {
             let mut j = i + 1;
             let mut bracket_count = 0;
@@ -187,8 +185,8 @@ fn correct_punc_zh(content: &str) -> String {
 }
 
 fn correct_quote_zh(content: &str) -> String {
-    static DOUBLE_QUOTE_LIST: Set<char> = phf_set!{'"', '“', '”'};
-    static SINGLE_QUOTE_LIST: Set<char> = phf_set!{'‘', '’'};
+    static DOUBLE_QUOTE_LIST: Set<char> = phf_set! {'"', '“', '”'};
+    static SINGLE_QUOTE_LIST: Set<char> = phf_set! {'‘', '’'};
     let mut chars = content.chars().into_iter().collect_vec();
     let mut quote_state = 0;
     let mut quote_state_2 = 0;
@@ -197,33 +195,74 @@ fn correct_quote_zh(content: &str) -> String {
             if quote_state == 0 {
                 chars[i] = '“';
                 quote_state = 1;
-            }else {
-                chars[i] ='”';
+            } else {
+                chars[i] = '”';
                 quote_state = 0;
             }
-            if i >0 && chars[i-1] == ' ' {
-                chars[i-1] = '\u{0}';
+            if i > 0 && chars[i - 1] == ' ' {
+                chars[i - 1] = '\u{0}';
             }
-            if i < chars.len()-1 && chars[i+1] == ' ' {
-                chars[i+1] = '\u{0}';
+            if i < chars.len() - 1 && chars[i + 1] == ' ' {
+                chars[i + 1] = '\u{0}';
             }
-        }else if SINGLE_QUOTE_LIST.contains(&chars[i]) {
+        } else if SINGLE_QUOTE_LIST.contains(&chars[i]) {
             if quote_state_2 == 0 {
                 chars[i] = '‘';
                 quote_state_2 = 1;
-            }else {
+            } else {
                 chars[i] = '’';
                 quote_state_2 = 0;
             }
-            if i >0 && chars[i-1] == ' ' {
-                chars[i-1] = '\u{0}';
+            if i > 0 && chars[i - 1] == ' ' {
+                chars[i - 1] = '\u{0}';
             }
-            if i < chars.len()-1 && chars[i+1] == ' '{
-                chars[i+1] = '\u{0}';
+            if i < chars.len() - 1 && chars[i + 1] == ' ' {
+                chars[i + 1] = '\u{0}';
             }
         }
     }
-    chars.into_iter().filter(|it|it != &'\u{0}').collect()
+    chars.into_iter().filter(|it| it != &'\u{0}').collect()
+}
+
+fn correct_ellipsis(content: &str, ellipsis: &str) -> String {
+    static ELLIPSIS_LIST: Set<char> = phf_set! {'.','。','·','…'};
+    let mut chars = content.chars().into_iter().collect_vec();
+    let mut i = 0;
+    while i < chars.len() {
+        if ELLIPSIS_LIST.contains(&chars[i]) {
+            let mut ellipsis_count = if chars[i] == '…' { 3 } else { 1 };
+            let mut j = i + 1;
+            while j < chars.len() {
+                if ELLIPSIS_LIST.contains(&chars[j]) {
+                    ellipsis_count += if chars[j] == '…' { 3 } else { 1 };
+                } else {
+                    break;
+                }
+                j += 1;
+            }
+            if ellipsis_count >= 3 {
+                dbg!(i, j, ellipsis_count);
+                let chars1 = ellipsis.chars().collect_vec();
+                let ellipsis_lens = chars1.len();
+                for (idx, c) in dbg!(chars1).into_iter().enumerate() {
+                    if i + idx >= j {
+                        chars.insert(j, c);
+                    } else if i + idx >= chars.len() {
+                        chars.push(c);
+                    } else {
+                        chars[i + idx] = c;
+                    }
+                }
+                for k in i + ellipsis_lens..j {
+                    chars[k] = '\u{0}';
+                }
+                dbg!(&chars);
+            }
+            i = j;
+        }
+        i += 1;
+    }
+    chars.into_iter().filter(|it| it != &'\u{0}').collect()
 }
 
 fn detect_forward(detector: fn(&char) -> bool, slices: &[char], idx: usize) -> bool {
@@ -417,6 +456,8 @@ pub fn normalize(content: impl Into<String>) -> String {
                     trimmed = correct_punc_zh(&trimmed);
                     dbg!(&trimmed.chars());
                     trimmed = correct_quote_zh(&trimmed);
+                    dbg!(&trimmed.chars());
+                    trimmed = correct_ellipsis(&trimmed, "……");
                 }
                 Lang::En => {
                     trimmed = dbg!(correct_space(&trimmed));
@@ -542,5 +583,12 @@ mod tests {
         assert_eq!("中文，中文", normalize("中文,中文"));
         assert_eq!("中文（中文）", normalize("中文(中文)"));
         assert_eq!("他们说：“你好啊”", normalize("他们说:\"你好啊\""));
+    }
+    #[test]
+    fn should_correct_ellipsis() {
+        assert_eq!("中文……", normalize("中文....。....."));
+        assert_eq!("中文……", normalize("中文…"));
+        assert_eq!("中文……中文", normalize("中文…中文"));
+        assert_eq!("中文……中文……", normalize("中文…...中文..."));
     }
 }
