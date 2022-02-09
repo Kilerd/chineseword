@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use phf::{phf_set, Set};
+use std::cmp::{max, min};
 use std::ops::Add;
 
 static ZH_LEFT_PUNC_SET: Set<char> = phf_set! {'（', '【','《','￥'};
@@ -60,6 +61,14 @@ static MINOR_SPACE_RULE: [(fn(&char) -> bool, fn(&char) -> bool); 4] = [
     (digit, is_zh_letter),
 ];
 
+static GUESS_LANG_WINDOW: usize = 3;
+
+#[derive(Debug, PartialEq)]
+enum Lang {
+    Zh,
+    En,
+}
+
 fn correct_space(content: &str) -> String {
     let chars = content.chars().into_iter().collect_vec();
     let mut ret = vec![];
@@ -83,7 +92,6 @@ fn correct_space(content: &str) -> String {
         }
     }
     ret.push(chars[chars.len() - 1]);
-    dbg!(&ret);
     ret.into_iter().collect()
 }
 
@@ -193,8 +201,43 @@ pub fn convert_full_width_char(letter: &str) -> &str {
     }
 }
 
-fn guess_lang(content: &str) {
-    todo!()
+fn guess_lang(content: &str) -> Lang {
+    let vec = content.chars().collect_vec();
+    let mut i = 0;
+    let mut j = vec.len() - 1;
+    while i < j && !is_zh_letter(&vec[i]) && !is_en_letter(&vec[i]) {
+        i += 1;
+    }
+    while i < j && !is_zh_letter(&vec[j]) && !is_en_letter(&vec[j]) {
+        j -= 1;
+    }
+    if i >= j {
+        return Lang::Zh;
+    }
+    let mut zh_count = 0;
+    let mut en_count = 0;
+    for k in i..min(i + GUESS_LANG_WINDOW, j) {
+        if is_zh_letter(&vec[k]) {
+            zh_count += 1;
+        }
+        if is_en_letter(&vec[k]) {
+            en_count += 1;
+        }
+    }
+    let i1 = j as isize - GUESS_LANG_WINDOW as isize;
+    for k in max(i1, i as isize) as usize..j {
+        if is_zh_letter(&vec[k]) {
+            zh_count += 1;
+        }
+        if is_en_letter(&vec[k]) {
+            en_count += 1;
+        }
+    }
+    if zh_count * 2 >= en_count {
+        Lang::Zh
+    } else {
+        Lang::En
+    }
 }
 
 pub fn normalize(content: impl Into<String>) -> String {
@@ -204,14 +247,21 @@ pub fn normalize(content: impl Into<String>) -> String {
     for line in lines {
         let trimmed = line.trim().split_whitespace().join(" ");
 
-        let trimmed = trimmed
+        let mut trimmed = trimmed
             .chars()
             .into_iter()
             .map(|it| convert_full_width_char(&it.to_string()).to_string())
             .join("");
         dbg!(&trimmed);
-        let trimmed = dbg!(correct_space(&trimmed));
-        let trimmed = dbg!(correct_minor_space(&trimmed));
+        let lang = guess_lang(&trimmed);
+        match lang {
+            Lang::Zh => {
+
+            }
+            Lang::En => {}
+        }
+        trimmed = dbg!(correct_space(&trimmed));
+        trimmed = dbg!(correct_minor_space(&trimmed));
         ret.push_str(&trimmed);
     }
     ret
@@ -281,7 +331,7 @@ fn digit(letter: &char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::normalize;
+    use crate::{guess_lang, normalize, Lang};
 
     #[test]
     fn should_keep_the_same_given_only_english_word() {
@@ -309,5 +359,14 @@ mod tests {
     #[test]
     fn should_correct_space() {
         assert_eq!("中文中文", normalize("中文 中文"));
+        assert_eq!("[[", normalize("[ ["));
+    }
+
+    #[test]
+    fn should_guess_language() {
+        assert_eq!(Lang::Zh, guess_lang("中文"));
+        assert_eq!(Lang::Zh, guess_lang("中文12312312"));
+        assert_eq!(Lang::En, guess_lang("eng"));
+        assert_eq!(Lang::Zh, guess_lang("中文eng"));
     }
 }
